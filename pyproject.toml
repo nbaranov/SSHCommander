@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "sshcommander"
+version = "0.1.0"
+description = ""
+authors = ["Baranov Nikita <nbaranov.vrn@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "3.12.2"
+netmiko = "^4.5.0"
+aiofiles = "^24.1.0"
+pyinstaller = "^6.12.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
