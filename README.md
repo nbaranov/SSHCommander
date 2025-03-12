@@ -22,13 +22,13 @@
    cd SSHCommander
 ```
 2. **Установите зависимости:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+```bash
+pip install -r requirements.txt
+```
 3. **Запустите приложение:**
-    ```bash
-    python main.py
-    ```
+```bash
+python main.py
+```
 ## Использование
 1. **Запустите приложение:** После выполнения `python main.py` откроется графический интерфейс.
 2. **Настройте подключение:**
