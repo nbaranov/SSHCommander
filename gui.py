@@ -5,6 +5,10 @@ import concurrent.futures
 from network import process_device
 from config import save_settings, load_settings
 from utils import validate_input
+from datetime import datetime
+import os
+import re
+import threading
 
 
 class NetworkToolApp:
@@ -14,29 +18,38 @@ class NetworkToolApp:
         self.running = False
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=20)
         self.result_queue = queue.Queue()
-        self.global_log_file = None
+        self.futures = []
         self.create_widgets()
         self.temp_file = load_settings(self)
         self.update_gui()
+        self.lock = threading.Lock()
 
     def create_widgets(self):
         login_frame = ttk.LabelFrame(self.root, text="Credentials")
         login_frame.pack(padx=10, pady=5, fill="x")
 
-        ttk.Label(login_frame, text="Username:").grid(row=0, column=0, padx=5, pady=5)
-        self.username = ttk.Entry(login_frame)
-        self.username.grid(row=0, column=1, padx=5, pady=5)
+        login_frame.grid_columnconfigure(0, weight=1)  # Пустой столбец слева
+        login_frame.grid_columnconfigure(4, weight=1)  # Пустой столбец справа
 
-        ttk.Label(login_frame, text="Password:").grid(row=1, column=0, padx=5, pady=5)
+        # Метки и поля ввода
+        ttk.Label(login_frame, text="Username:").grid(
+            row=0, column=1, padx=5, pady=5, sticky="w"
+        )
+        self.username = ttk.Entry(login_frame)
+        self.username.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+
+        ttk.Label(login_frame, text="Password:").grid(
+            row=0, column=2, padx=5, pady=5, sticky="w"
+        )
         self.password = ttk.Entry(login_frame, show="*")
-        self.password.grid(row=1, column=1, padx=5, pady=5)
+        self.password.grid(row=1, column=2, padx=5, pady=5, sticky="w")
 
         ttk.Label(login_frame, text="Device Type:").grid(
-            row=2, column=0, padx=5, pady=5
+            row=0, column=3, padx=5, pady=5, sticky="w"
         )
         self.device_type = ttk.Combobox(login_frame, values=["huawei", "nokia"])
         self.device_type.set("huawei")
-        self.device_type.grid(row=2, column=1, padx=5, pady=5)
+        self.device_type.grid(row=1, column=3, padx=5, pady=5, sticky="w")
 
         ip_frame = ttk.LabelFrame(self.root, text="IP Addresses")
         ip_frame.pack(padx=10, pady=5, fill="both")
@@ -100,8 +113,18 @@ class NetworkToolApp:
             self.cancel_button.config(state="normal")
             self.result_text.delete("1.0", "end")
             self.progress["value"] = 0
-            self.global_log_file = None
             self.completed_tasks = 0
+
+            # Создаём подпапку с таймстампом
+            timestamp = datetime.now().strftime("%Y.%m.%d_%H.%M.%S")
+            self.log_dir = f"device_logs/{timestamp}"
+            os.makedirs(self.log_dir, exist_ok=True)
+            self.all_devices_log = f"{self.log_dir}/_all_devices_log.log"
+            self.failed_log_file = f"{self.log_dir}/_failed_connections.csv"
+
+            # Создаём заголовок для CSV-файла
+            with open(self.failed_log_file, "w") as f_failed:
+                f_failed.write("IP,Reason\n")
 
             username = self.username.get()
             password = self.password.get()
@@ -110,18 +133,19 @@ class NetworkToolApp:
             cmd_text = self.cmd_text.get("1.0", "end-1c")
             thread_count = int(self.thread_count.get())
 
-            import re
-
             ip_pattern = r"(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)"
-            ip_list = list(set(re.findall(ip_pattern, ip_text)))
+            ip_list = [ip.strip() for ip in re.findall(ip_pattern, ip_text)]
+            ip_list = list(filter(None, ip_list))
+            ip_list = list(set(ip_list))
             commands = [cmd.strip() for cmd in cmd_text.split("\n") if cmd.strip()]
             self.total_devices = len(ip_list)
 
+            self.futures = []
             self.executor = concurrent.futures.ThreadPoolExecutor(
                 max_workers=thread_count
             )
             for ip in ip_list:
-                self.executor.submit(
+                future = self.executor.submit(
                     process_device,
                     ip,
                     username,
@@ -130,20 +154,12 @@ class NetworkToolApp:
                     commands,
                     self.result_queue,
                     self.running,
-                    self.global_log_file,
+                    self.log_dir,
+                    self.all_devices_log,
+                    self.failed_log_file,
+                    self.lock,
                 )
-
-    def execution_finished(self):
-        self.running = False
-        self.run_button.config(state="normal")
-        self.cancel_button.config(state="disabled")
-        messagebox.showinfo("Complete", "Execution finished or cancelled")
-        self.global_log_file = None
-
-    def cancel_execution(self):
-        self.running = False
-        self.executor.shutdown(wait=False)
-        self.execution_finished()
+                self.futures.append(future)
 
     def update_gui(self):
         try:
@@ -151,12 +167,46 @@ class NetworkToolApp:
                 result = self.result_queue.get_nowait()
                 self.result_text.insert("end", result)
                 self.result_text.see("end")
-                self.progress["value"] += 100 / self.total_devices
+                if "Success" in result or "Error" in result:
+                    self.completed_tasks += 1
+                    self.progress["value"] = (
+                        self.completed_tasks / self.total_devices
+                    ) * 100
         except queue.Empty:
             pass
+        if (
+            hasattr(self, "futures")
+            and self.running
+            and all(future.done() for future in self.futures)
+        ):
+            self.execution_finished()
+
         self.root.after(100, self.update_gui)
+
+    def execution_finished(self):
+        self.running = False
+        if hasattr(self, "futures") and self.futures:
+            done, not_done = concurrent.futures.wait(self.futures)
+            print(f"Completed tasks: {len(done)}, Pending tasks: {len(not_done)}")
+        self.executor.shutdown(wait=True)
+        self.run_button.config(state="normal")
+        self.cancel_button.config(state="disabled")
+        self.result_queue.put("Execution finished")
+        messagebox.showinfo("Complete", "Execution finished")
+
+    def execution_canceled(self):
+        self.running = False
+        self.run_button.config(state="normal")
+        self.cancel_button.config(state="disabled")
+        self.result_queue.put(f"Execution cancelled")
+        messagebox.showinfo("Cancel", "Execution cancelled")
+
+    def cancel_execution(self):
+        self.running = False
+        self.executor.shutdown(wait=False)
+        self.execution_canceled()
 
     def on_closing(self):
         self.running = False
-        self.executor.shutdown(wait=False)
+        self.executor.shutdown(wait=False, cancel_futures=True)
         self.root.destroy()
