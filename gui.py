@@ -50,7 +50,7 @@ class NetworkToolApp:
         ttk.Label(login_frame, text="Device Type:").grid(
             row=0, column=3, padx=5, pady=5, sticky="w"
         )
-        self.device_type = ttk.Combobox(login_frame, values=["huawei", "nokia"])
+        self.device_type = ttk.Combobox(login_frame, values=["huawei", "nokia_sros"])
         self.device_type.set("huawei")
         self.device_type.grid(row=1, column=3, padx=5, pady=5, sticky="w")
 
