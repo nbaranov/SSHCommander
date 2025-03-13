@@ -15,7 +15,8 @@ class NetworkToolApp:
     def __init__(self, root):
         self.root = root
         self.root.title("SSH-Commander by nbaranov.vrn@gmail.com")
-        self.running = False
+        self.running_event = threading.Event()
+        self.running_event.clear()
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=20)
         self.result_queue = queue.Queue()
         self.futures = []
@@ -108,8 +109,8 @@ class NetworkToolApp:
             return
 
         save_settings(self)
-        if not self.running:
-            self.running = True
+        if not self.running_event.is_set():
+            self.running_event.set()
             self.run_button.config(state="disabled")
             self.cancel_button.config(state="normal")
             self.result_text.delete("1.0", "end")
@@ -154,7 +155,7 @@ class NetworkToolApp:
                     device_type,
                     commands,
                     self.result_queue,
-                    self.running,
+                    self.running_event,
                     self.log_dir,
                     self.all_devices_log,
                     self.failed_devices,
@@ -177,7 +178,7 @@ class NetworkToolApp:
             pass
         if (
             hasattr(self, "futures")
-            and self.running
+            and self.running_event.is_set()
             and all(future.done() for future in self.futures)
         ):
             self.execution_finished()
@@ -185,7 +186,7 @@ class NetworkToolApp:
         self.root.after(100, self.update_gui)
 
     def execution_finished(self):
-        self.running = False
+        self.running_event.clear()
         if hasattr(self, "futures") and self.futures:
             done, not_done = concurrent.futures.wait(self.futures)
             print(f"Completed tasks: {len(done)}, Pending tasks: {len(not_done)}")
@@ -203,18 +204,17 @@ class NetworkToolApp:
                     f_failed.write(f"{ip},{reason}\n")
 
     def execution_canceled(self):
-        self.running = False
         self.run_button.config(state="normal")
         self.cancel_button.config(state="disabled")
         self.result_queue.put(f"Execution cancelled")
         messagebox.showinfo("Cancel", "Execution cancelled")
 
     def cancel_execution(self):
-        self.running = False
-        self.executor.shutdown(wait=False)
+        self.running_event.clear()
+        self.executor.shutdown(wait=False, cancel_futures=True)
         self.execution_canceled()
 
     def on_closing(self):
-        self.running = False
+        self.running_event.clear()
         self.executor.shutdown(wait=False, cancel_futures=True)
         self.root.destroy()

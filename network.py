@@ -10,13 +10,13 @@ def process_device(
     device_type,
     commands,
     result_queue,
-    running,
+    running_event,
     log_dir,
     all_devices_log,
     failed_devices,
     lock,
 ):
-    if not running:
+    if not running_event.is_set():
         return
 
     try:
@@ -37,6 +37,8 @@ def process_device(
         error_occurred = False
         result_queue.put(f"{ip}: Connecting...\n")
         with ConnectHandler(**device) as conn:
+            if not running_event.is_set():
+                return
             prompt = conn.find_prompt()
             hostname = prompt.strip("<>#")
             expect_string = rf"[<[]*{hostname}.*[>\]#]"
@@ -58,7 +60,7 @@ def process_device(
             conn.config_mode()
 
             for cmd in commands:
-                if not running:
+                if not running_event.is_set():
                     break
                 result_queue.put(f"{ip}: send command {cmd}\n")
                 result = conn.send_command(cmd, expect_string=expect_string)
@@ -126,7 +128,7 @@ def process_device(
                         f_dev.write(f"{datetime.now()} - {log_entry}")
                         f_global.write(f"{datetime.now()} - {ip}: {log_entry}")
 
-            if running:
+            if running_event.is_set():
                 if error_occurred:
                     result_queue.put(f"{ip}: Error during command execution\n")
                 else:
