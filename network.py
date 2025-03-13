@@ -3,10 +3,22 @@ import os
 from datetime import datetime
 
 
-def process_device(ip, username, password, device_type, commands, result_queue, running, log_dir, all_devices_log, failed_log_file, lock):
+def process_device(
+    ip,
+    username,
+    password,
+    device_type,
+    commands,
+    result_queue,
+    running,
+    log_dir,
+    all_devices_log,
+    failed_log_file,
+    lock,
+):
     if not running:
         return
-    
+
     try:
         device = {
             "device_type": device_type,
@@ -15,7 +27,7 @@ def process_device(ip, username, password, device_type, commands, result_queue, 
             "password": password,
             "timeout": 20,
             "session_timeout": 20,
-            "fast_cli": False 
+            "fast_cli": False,
         }
 
         with lock:  # Синхронизация записи
@@ -32,9 +44,15 @@ def process_device(ip, username, password, device_type, commands, result_queue, 
             device_log = f"{log_dir}/{hostname}_{ip}.log"
 
             with lock:  # Синхронизация записи
-                with open(device_log, "a") as f_dev, open(all_devices_log, "a") as f_global:
-                    f_dev.write(f"{datetime.now()} - Успешно подключились к {ip} ({hostname})\n")
-                    f_global.write(f"{datetime.now()} - Успешно подключились к {ip} ({hostname})\n")
+                with open(device_log, "a") as f_dev, open(
+                    all_devices_log, "a"
+                ) as f_global:
+                    f_dev.write(
+                        f"{datetime.now()} - Успешно подключились к {ip} ({hostname})\n"
+                    )
+                    f_global.write(
+                        f"{datetime.now()} - Успешно подключились к {ip} ({hostname})\n"
+                    )
 
             result_queue.put(f"{ip}: Connected!\n")
             conn.config_mode()
@@ -46,19 +64,67 @@ def process_device(ip, username, password, device_type, commands, result_queue, 
                 result = conn.send_command(cmd, expect_string=expect_string)
                 log_entry = f"Command: {cmd}\n{result}\n\n"
                 with lock:  # Синхронизация записи
-                    with open(device_log, "a") as f_dev, open(all_devices_log, "a") as f_global:
+                    with open(device_log, "a") as f_dev, open(
+                        all_devices_log, "a"
+                    ) as f_global:
                         f_dev.write(f"{datetime.now()} - {log_entry}")
                         f_global.write(f"{datetime.now()} - {ip}: {log_entry}")
 
                 if "error" in result.lower() or "unrecognized" in result.lower():
                     with lock:  # Синхронизация записи
-                        with open(device_log, "a") as f_dev, open(all_devices_log, "a") as f_global:
-                            f_dev.write(f"{datetime.now()} - Ошибка при выполнении команды. Прекращаем выполнение.\n")
-                            f_global.write(f"{datetime.now()} - {ip}: Ошибка при выполнении команды. Прекращаем выполнение.\n")
+                        with open(device_log, "a") as f_dev, open(
+                            all_devices_log, "a"
+                        ) as f_global:
+                            f_dev.write(
+                                f"{datetime.now()} - Ошибка при выполнении команды. Прекращаем выполнение.\n"
+                            )
+                            f_global.write(
+                                f"{datetime.now()} - {ip}: Ошибка при выполнении команды. Прекращаем выполнение.\n"
+                            )
                     error_occurred = True
                     break
             if not error_occurred:
-                conn.save_config()
+                # Обработка commit
+                try:
+                    commit_output = conn.commit()
+                    log_entry = f"Commit: {commit_output}\n"
+                except Exception as e:
+                    commit_output = f"Failed to commit: {str(e)}"
+                    log_entry = f"Commit error: {commit_output}\n"
+                with lock:
+                    with open(device_log, "a") as f_dev, open(
+                        all_devices_log, "a"
+                    ) as f_global:
+                        f_dev.write(f"{datetime.now()} - {log_entry}")
+                        f_global.write(f"{datetime.now()} - {ip}: {log_entry}")
+
+                # Обработка exit_config_mode
+                try:
+                    exit_output = conn.exit_config_mode()
+                    log_entry = f"Exit config mode: {exit_output}\n"
+                except Exception as e:
+                    exit_output = f"Failed to exit config mode: {str(e)}"
+                    log_entry = f"Exit config mode error: {exit_output}\n"
+                with lock:
+                    with open(device_log, "a") as f_dev, open(
+                        all_devices_log, "a"
+                    ) as f_global:
+                        f_dev.write(f"{datetime.now()} - {log_entry}")
+                        f_global.write(f"{datetime.now()} - {ip}: {log_entry}")
+
+                # Обработка save_config (оставляем как в вашем примере)
+                try:
+                    save_output = conn.save_config()
+                    log_entry = f"Save config: {save_output}\n"
+                except Exception as e:
+                    save_output = f"Failed to save config: {str(e)}"
+                    log_entry = f"Save config error: {save_output}\n"
+                with lock:
+                    with open(device_log, "a") as f_dev, open(
+                        all_devices_log, "a"
+                    ) as f_global:
+                        f_dev.write(f"{datetime.now()} - {log_entry}")
+                        f_global.write(f"{datetime.now()} - {ip}: {log_entry}")
 
             if running:
                 if error_occurred:
@@ -70,9 +136,15 @@ def process_device(ip, username, password, device_type, commands, result_queue, 
         with lock:  # Синхронизация записи
             with open(all_devices_log, "a") as f_global:
                 f_global.write(f"{datetime.now()} - {error_msg}")
-            with open(failed_log_file, "a", newline='') as f_failed:
-                reason = ("Authentication failed" if "authentication" in str(e).lower() else
-                          "Connection timed out" if "tcp connection" in str(e).lower() else
-                          "Unknown error")
+            with open(failed_log_file, "a", newline="") as f_failed:
+                reason = (
+                    "Authentication failed"
+                    if "authentication" in str(e).lower()
+                    else (
+                        "Connection timed out"
+                        if "tcp connection" in str(e).lower()
+                        else "Unknown error"
+                    )
+                )
                 f_failed.write(f"{ip},{reason}\n")
         result_queue.put(error_msg)
