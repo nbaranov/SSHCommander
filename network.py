@@ -13,7 +13,7 @@ def process_device(
     running,
     log_dir,
     all_devices_log,
-    failed_log_file,
+    failed_devices,
     lock,
 ):
     if not running:
@@ -133,18 +133,18 @@ def process_device(
                     result_queue.put(f"{ip}: Success\n")
     except Exception as e:
         error_msg = f"{ip}: Error - {str(e)}\n"
-        with lock:  # Синхронизация записи
+        with lock:  # Синхронизация записи в общий лог, если нужно
             with open(all_devices_log, "a") as f_global:
                 f_global.write(f"{datetime.now()} - {error_msg}")
-            with open(failed_log_file, "a", newline="") as f_failed:
-                reason = (
-                    "Authentication failed"
-                    if "authentication" in str(e).lower()
-                    else (
-                        "Connection timed out"
-                        if "tcp connection" in str(e).lower()
-                        else "Unknown error"
-                    )
-                )
-                f_failed.write(f"{ip},{reason}\n")
+        # Добавляем IP и причину в список неудачных подключений
+        reason = (
+            "Authentication failed"
+            if "authentication" in str(e).lower()
+            else (
+                "Connection timed out"
+                if "tcp connection" in str(e).lower()
+                else "Unknown error"
+            )
+        )
+        failed_devices.append((ip, reason))
         result_queue.put(error_msg)

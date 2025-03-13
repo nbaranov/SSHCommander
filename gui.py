@@ -96,6 +96,7 @@ class NetworkToolApp:
         self.result_text.pack(padx=5, pady=5, fill="both", expand=True)
 
     def start_execution(self):
+        self.failed_devices = []
         validation_error = validate_input(
             self.username.get(),
             self.password.get(),
@@ -156,7 +157,7 @@ class NetworkToolApp:
                     self.running,
                     self.log_dir,
                     self.all_devices_log,
-                    self.failed_log_file,
+                    self.failed_devices,
                     self.lock,
                 )
                 self.futures.append(future)
@@ -193,6 +194,13 @@ class NetworkToolApp:
         self.cancel_button.config(state="disabled")
         self.result_queue.put("Execution finished")
         messagebox.showinfo("Complete", "Execution finished")
+
+        if self.failed_devices:
+            failed_log_file = f"{self.log_dir}/_failed_connections.csv"
+            with open(failed_log_file, "w", newline="") as f_failed:
+                f_failed.write("IP,Reason\n")
+                for ip, reason in self.failed_devices:
+                    f_failed.write(f"{ip},{reason}\n")
 
     def execution_canceled(self):
         self.running = False
