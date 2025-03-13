@@ -9,6 +9,8 @@ from datetime import datetime
 import os
 import re
 import threading
+import subprocess
+import platform
 
 
 class NetworkToolApp:
@@ -90,6 +92,11 @@ class NetworkToolApp:
             button_frame, text="Cancel", command=self.cancel_execution, state="disabled"
         )
         self.cancel_button.pack(side="left", padx=5)
+
+        self.logs_button = ttk.Button(
+            button_frame, text="Open Logs", command=self.open_logs_folder
+        )
+        self.logs_button.pack(side="left", padx=5)
 
         result_frame = ttk.LabelFrame(self.root, text="Results")
         result_frame.pack(padx=10, pady=5, fill="both", expand=True)
@@ -218,3 +225,29 @@ class NetworkToolApp:
         self.running_event.clear()
         self.executor.shutdown(wait=False, cancel_futures=True)
         self.root.destroy()
+
+    def open_logs_folder(self):
+        logs_dir = os.path.abspath("device_logs")
+
+        if not os.path.exists(logs_dir):
+            try:
+                os.makedirs(logs_dir, exist_ok=True)
+                messagebox.showinfo("Info", f"Logs directory created: {logs_dir}")
+            except Exception as e:
+                messagebox.showerror(
+                    "Error", f"Failed to create logs directory: {str(e)}"
+                )
+                return
+
+        try:
+            os_name = platform.system()
+            if os_name == "Windows":
+                os.startfile(logs_dir)  # Для Windows
+            elif os_name == "Darwin":  # macOS
+                subprocess.run(["open", logs_dir])
+            elif os_name == "Linux":
+                subprocess.run(["xdg-open", logs_dir])
+            else:
+                messagebox.showerror("Error", f"Unsupported OS: {os_name}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open logs directory: {str(e)}")
